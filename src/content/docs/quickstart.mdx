@@ -1,0 +1,172 @@
+---
+title: Quickstart
+description: Register a peer, submit an event, query a trust score. Five minutes from clone to verdict.
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+In five minutes you'll have a Federation Core running locally, registered as a peer, with one trust event in the database and one trust score returned by the API. Pick `curl` or Go below — both walk through the same three calls.
+
+## Prerequisites
+
+- **Docker + Docker Compose** for PostgreSQL and Redis.
+- **Go 1.22+** if you want to build the backend from source (you can also `docker compose --profile app up` and skip the Go install).
+- A terminal. That's it.
+
+## 1. Clone and start the backend
+
+<Steps>
+
+1. Clone the repo and start Postgres + Redis:
+
+   ```sh
+   git clone https://github.com/JamilEssifiDEV/federation-core
+   cd federation-core
+   cp .env.example .env
+   make docker-up
+   ```
+
+2. Build and start the Federation Core:
+
+   ```sh
+   make build
+   ./bin/federation-core
+   ```
+
+   You should see `FedShield Federation Core starting addr=:8080` and a few `INFO` lines for the database connection. Leave it running in this terminal.
+
+3. Verify it's up:
+
+   ```sh
+   curl http://localhost:8080/api/v1/health
+   # {"status":"ok","service":"federation-core"}
+   ```
+
+</Steps>
+
+## 2. Register your peer
+
+Every game server is a peer. Peers get an API key on first registration and must include it (header `X-Peer-API-Key`) on every subsequent request.
+
+<Tabs syncKey="lang">
+  <TabItem label="curl">
+    ```sh
+    curl -X POST http://localhost:8080/api/v1/peers/register \
+      -H "Content-Type: application/json" \
+      -d '{
+        "peer_name": "My Game Server",
+        "game_ids": ["my-game"],
+        "contact_email": "ops@mystudio.example"
+      }'
+    ```
+
+    Save `peer_id` and `api_key` from the response. You'll need both:
+
+    ```json
+    {
+      "peer_id": "ad2e1e0f-7279-4013-9a0c-3a8a4ecde248",
+      "api_key": "sk_...",
+      "status": "active"
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    package main
+
+    import (
+      "fmt"
+      "github.com/JamilEssifiDEV/federation-core/cmd/simulations/internal/simclient"
+      "context"
+    )
+
+    func main() {
+      client := simclient.New("http://localhost:8080")
+      reg, err := client.Register(context.Background(),
+        "My Game Server", []string{"my-game"}, "ops@mystudio.example")
+      if err != nil {
+        panic(err)
+      }
+      fmt.Printf("peer_id=%s api_key=%s\n", reg.PeerID, reg.APIKey)
+
+      // Attach the key to every subsequent request.
+      client = client.WithAPIKey(reg.APIKey)
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## 3. Submit a trust event
+
+Events are descriptive (something happened) rather than directive (ban this player). The Federation Core decides what the aggregated score means; your server keeps full control of enforcement.
+
+<Tabs syncKey="lang">
+  <TabItem label="curl">
+    ```sh
+    curl -X POST http://localhost:8080/api/v1/events \
+      -H "Content-Type: application/json" \
+      -H "X-Peer-API-Key: sk_..." \
+      -d '{
+        "schema_version": "1.0.0",
+        "event_id": "evt-001",
+        "event_type": "report_cheating",
+        "peer_id": "ad2e1e0f-7279-4013-9a0c-3a8a4ecde248",
+        "player_id": "player-alice-123",
+        "game_id": "my-game",
+        "severity": 0.85,
+        "timestamp": "2026-06-07T18:00:00Z"
+      }'
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    event := simclient.ReportCheating(reg.PeerID, "player-alice-123", "my-game", 0.85)
+    result, err := client.SubmitEvent(context.Background(), &event)
+    if err != nil {
+      panic(err)
+    }
+    fmt.Printf("accepted=%v duplicate=%v\n", result.Accepted, result.Duplicate)
+    ```
+  </TabItem>
+</Tabs>
+
+A single event won't move a clean player's score much — the Bayesian prior keeps newcomers near neutral until enough evidence accumulates. Try submitting a few more events to see the score shift.
+
+## 4. Query the trust score
+
+<Tabs syncKey="lang">
+  <TabItem label="curl">
+    ```sh
+    curl http://localhost:8080/api/v1/players/player-alice-123/trust-score
+    ```
+
+    ```json
+    {
+      "player_id": "player-alice-123",
+      "score": 47.8,
+      "confidence": 0.05,
+      "verdict": "neutral",
+      "event_count": 1
+    }
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    score, err := client.GetTrustScore(context.Background(), "player-alice-123")
+    if err != nil {
+      panic(err)
+    }
+    fmt.Printf("score=%.1f verdict=%s confidence=%.2f\n",
+      score.Score, score.Verdict, score.Confidence)
+    ```
+  </TabItem>
+</Tabs>
+
+That's it. You have a working federation peer. Your game server can now query trust scores for any player ID it sees and apply whatever policy makes sense (allow, monitor, kick, ban).
+
+## Next steps
+
+- **[Understand the verdict bands](/concepts/scores/)** — what `trusted`, `neutral`, `suspicious`, `untrusted` actually mean.
+- **[Federate with other studios](/concepts/peers/)** — how federation groups, group salts, and pseudonymisation work.
+- **[Explore the full API](/api/reference/)** — every endpoint, every parameter, interactive try-it-out.
+- **[Self-host in production](/self-host/docker/)** — what changes from local dev to a real deployment.

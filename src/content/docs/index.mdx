@@ -1,0 +1,79 @@
+---
+title: FedShield
+description: Federated trust infrastructure for online multiplayer games. Cross-studio reputation signals without a central authority.
+template: splash
+hero:
+  tagline: Cross-studio player reputation, without a central authority.
+  actions:
+    - text: Quickstart (5 minutes)
+      link: /quickstart/
+      icon: right-arrow
+    - text: API reference
+      link: /api/reference/
+      icon: external
+      variant: minimal
+    - text: View on GitHub
+      link: https://github.com/JamilEssifiDEV/federation-core
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What FedShield is
+
+A federated backend that lets independently operated game servers exchange player reputation data through a common protocol. No central authority holds the record. Studios stay in control of their own enforcement; FedShield only returns advisory scores.
+
+A ban in one game means nothing in another today. Each studio keeps its moderation data in a silo, throwing away the collective signal every other studio has produced about the same player. FedShield closes that loop.
+
+## Who it's for
+
+<CardGrid>
+  <Card title="Backend engineers" icon="setting">
+    Self-host the Federation Core, register your server as a peer, start
+    submitting trust events. The API surface is small and boring on purpose.
+  </Card>
+  <Card title="System architects" icon="puzzle">
+    Federate with other studios in your trust group. Choose between
+    Privacy-First and High-Security identity modes per group. No global
+    authority required.
+  </Card>
+  <Card title="Security teams" icon="approve-check">
+    Augment an existing anti-cheat stack with cross-game reputation signals.
+    Verdicts are advisory; your enforcement policy stays in your code.
+  </Card>
+  <Card title="Open source contributors" icon="github">
+    The Federation Core is Go 1.22, PostgreSQL 16, Redis 7. No magic, no
+    enterprise gating, no licence fees. PRs welcome.
+  </Card>
+</CardGrid>
+
+## How it works in 30 seconds
+
+1. **Register your game server as a peer.** One HTTP call, one API key.
+2. **Submit trust events** as players misbehave (or get reported, banned, commended).
+3. **Query a player's trust score** from any peer in the same federation group.
+4. **Apply your own enforcement policy.** FedShield never bans anyone for you. It just gives you the collective signal.
+
+The trust score is a Bayesian Beta with exponential time decay, peer-weighted via an EigenTrust-inspired aggregation that resists Sybil attacks. Same player, same federation, same score — across studios.
+
+## Pick a starting point
+
+<CardGrid stagger>
+  <Card title="Quickstart" icon="rocket">
+    Register a peer, submit an event, query a score. Curl + Go side-by-side.
+    [Start the quickstart →](/quickstart/)
+  </Card>
+  <Card title="How FedShield works" icon="open-book">
+    The three-layer architecture, the scoring formula, the federation model.
+    [Read the overview →](/concepts/overview/)
+  </Card>
+  <Card title="API reference" icon="document">
+    Every endpoint, every parameter, every response shape. Try requests in
+    your browser. [Open the reference →](/api/reference/)
+  </Card>
+  <Card title="Self-host" icon="setting">
+    Docker compose for PostgreSQL, Redis, and the Federation Core binary.
+    [Self-host guide →](/self-host/docker/)
+  </Card>
+</CardGrid>

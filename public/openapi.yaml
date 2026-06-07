@@ -1,0 +1,530 @@
+openapi: "3.1.0"
+
+info:
+  title: FedShield – Federation Core API
+  version: "0.1.0"
+  description: |
+    **FedShield** is a federated trust infrastructure for online multiplayer games.
+
+    Registered federated peers submit trust-relevant player events to the
+    Federation Core, which aggregates them into a normalised trust score
+    using a weighted, time-decayed algorithm.
+
+    Game developers query a player's trust score via the Policy Layer and apply
+    their own enforcement policy (kick, ban, monitor, etc.) in their own game —
+    without any central authority making that decision.
+
+    ## Architecture
+
+    ```
+    Game Developer (peer)
+        │  POST /api/v1/events
+        ▼
+    ┌─────────────────────────────────────────────────┐
+    │  Event Layer      – ingestion + schema validation│
+    │  Aggregation Layer– weighted scoring + time-decay│
+    │  Policy Layer     – REST query interface          │
+    └─────────────────────────────────────────────────┘
+        │  GET /api/v1/players/{id}/score
+        ▼
+    Game developer's code decides: allow / monitor / kick / ban
+    ```
+
+    ## Authentication
+
+    All endpoints (except `/health`) require an API key in the `X-Peer-API-Key`
+    header. In Phase 1 (`PEER_AUTH_ENABLED=false`) this check is bypassed for
+    local development. Ed25519 request signing is introduced in Phase 2.
+
+  contact:
+    name: Jamil Essifi
+    email: jamil.essifi@outlook.de
+
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: https://api.fedshield.dev/v1
+    description: Production (placeholder)
+
+tags:
+  - name: events
+    description: Trust event ingestion
+  - name: players
+    description: Player trust score queries
+  - name: peers
+    description: Peer registration and management
+  - name: health
+    description: Service liveness and readiness
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+
+paths:
+
+  # ── Health ──────────────────────────────────────────────────────────────────
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      description: Returns 200 if the service is running. Used by Docker HEALTHCHECK and load balancers.
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+                service: federation-core
+
+  # ── Events ──────────────────────────────────────────────────────────────────
+  /events:
+    post:
+      operationId: ingestEvent
+      summary: Ingest a trust event
+      description: |
+        Accepts a single trust event from a registered peer.
+        The payload is validated against the TrustEvent JSON Schema.
+        Duplicate `event_id` values are rejected with 409.
+      tags: [events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrustEvent"
+            examples:
+              cheating_report:
+                summary: Cheating report
+                value:
+                  schema_version: "1.0.0"
+                  event_id: "550e8400-e29b-41d4-a716-446655440000"
+                  event_type: report_cheating
+                  peer_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  player_id: "76561198000000001"
+                  timestamp: "2026-03-15T14:32:00Z"
+                  severity: 0.9
+                  game_id: game-alpha
+                  metadata:
+                    report_reason: aimbot
+                    reported_by_count: 5
+              commendation:
+                summary: Player commendation
+                value:
+                  schema_version: "1.0.0"
+                  event_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                  event_type: commendation
+                  peer_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  player_id: "76561198000000002"
+                  timestamp: "2026-03-15T15:00:00Z"
+                  severity: 0.7
+                  game_id: game-alpha
+      responses:
+        "201":
+          description: Event accepted and stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventAcceptedResponse"
+        "400":
+          description: Invalid payload – JSON Schema validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorised – missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Duplicate event – event_id already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Unprocessable – valid JSON but semantic error (e.g. unknown peer_id)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ── Players ──────────────────────────────────────────────────────────────────
+  /players/{player_id}/score:
+    get:
+      operationId: getPlayerScore
+      summary: Get trust score for a player
+      description: |
+        Returns the current aggregated trust score for a player.
+        The score is computed from all stored events, weighted by event type,
+        severity, and time-decay (half-life configurable via `TIME_DECAY_HALF_LIFE_DAYS`).
+      tags: [players]
+      parameters:
+        - $ref: "#/components/parameters/PlayerID"
+      responses:
+        "200":
+          description: Trust score result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrustScore"
+        "404":
+          description: Player not found – no events recorded for this player_id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /players/{player_id}/events:
+    get:
+      operationId: getPlayerEvents
+      summary: Get trust event history for a player
+      description: Returns a paginated list of all trust events recorded for a player, newest first.
+      tags: [players]
+      parameters:
+        - $ref: "#/components/parameters/PlayerID"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+          description: Maximum number of events to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+          description: Number of events to skip (for pagination)
+        - name: event_type
+          in: query
+          schema:
+            type: string
+          description: Filter by event type
+      responses:
+        "200":
+          description: Paginated event list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventListResponse"
+        "404":
+          description: Player not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ── Peers ────────────────────────────────────────────────────────────────────
+  /peers:
+    get:
+      operationId: listPeers
+      summary: List all registered peers
+      description: Returns all federated peers registered with this Federation Core instance.
+      tags: [peers]
+      responses:
+        "200":
+          description: List of registered peers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Peer"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /peers/register:
+    post:
+      operationId: registerPeer
+      summary: Register a new federated peer
+      description: |
+        Registers a game developer's server as a trusted peer of this Federation Core.
+        Returns an API key for use in the `X-Peer-API-Key` header.
+        The Ed25519 public key is stored for Phase 2 request signing.
+      tags: [peers]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PeerRegistrationRequest"
+            example:
+              peer_name: "Game Alpha – EU Server 1"
+              public_key: "MCowBQYDK2VwAyEA..."
+              game_ids: ["game-alpha"]
+              contact_email: "ops@game-alpha.example"
+      responses:
+        "201":
+          description: Peer registered – API key returned (store securely, shown once)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeerRegistrationResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Peer with this public key already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+# ─── Components ───────────────────────────────────────────────────────────────
+
+components:
+
+  # ── Parameters ──────────────────────────────────────────────────────────────
+  parameters:
+    PlayerID:
+      name: player_id
+      in: path
+      required: true
+      description: Platform-agnostic player identifier
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: "76561198000000001"
+
+  # ── Schemas ──────────────────────────────────────────────────────────────────
+  schemas:
+
+    TrustEvent:
+      type: object
+      required:
+        - schema_version
+        - event_id
+        - event_type
+        - peer_id
+        - player_id
+        - timestamp
+        - severity
+      additionalProperties: false
+      properties:
+        schema_version:
+          type: string
+          enum: ["1.0.0"]
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum:
+            - report_cheating
+            - report_toxicity
+            - report_spam
+            - friendly_fire
+            - ban_applied
+            - ban_lifted
+            - commendation
+            - session_anomaly
+            - matchmaking_fraud
+        peer_id:
+          type: string
+          format: uuid
+        player_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        timestamp:
+          type: string
+          format: date-time
+        severity:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+        game_id:
+          type: string
+          maxLength: 64
+        session_id:
+          type: string
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+        signature:
+          type: string
+
+    TrustScore:
+      type: object
+      required: [player_id, score, confidence, event_count, last_updated, verdict]
+      properties:
+        player_id:
+          type: string
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Aggregated trust score (0 = untrusted, 100 = fully trusted)
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Confidence in the score (increases with event volume)
+        event_count:
+          type: integer
+          minimum: 0
+        last_updated:
+          type: string
+          format: date-time
+        verdict:
+          type: string
+          enum: [trusted, neutral, suspicious, untrusted]
+          description: |
+            Human-readable verdict derived from the score:
+            - trusted: score >= 70
+            - neutral: 40 <= score < 70
+            - suspicious: 20 <= score < 40
+            - untrusted: score < 20
+
+    Peer:
+      type: object
+      required: [peer_id, peer_name, game_ids, status, registered_at]
+      properties:
+        peer_id:
+          type: string
+          format: uuid
+        peer_name:
+          type: string
+        game_ids:
+          type: array
+          items:
+            type: string
+        contact_email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [active, suspended, revoked]
+        registered_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: [string, "null"]
+          format: date-time
+
+    PeerRegistrationRequest:
+      type: object
+      required: [peer_name, public_key, game_ids]
+      properties:
+        peer_name:
+          type: string
+          maxLength: 256
+        public_key:
+          type: string
+          description: Ed25519 public key, base64url-encoded
+        game_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        contact_email:
+          type: string
+          format: email
+
+    PeerRegistrationResponse:
+      type: object
+      required: [peer_id, api_key]
+      properties:
+        peer_id:
+          type: string
+          format: uuid
+        api_key:
+          type: string
+          description: Plaintext API key – store securely, shown only once
+
+    EventAcceptedResponse:
+      type: object
+      required: [event_id, status]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [accepted]
+
+    EventListResponse:
+      type: object
+      required: [data, total, limit, offset]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrustEvent"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        service:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          example: schema_validation_failed
+        message:
+          type: string
+          description: Human-readable error description
+        details:
+          type: array
+          items:
+            type: string
+          description: Optional list of specific validation errors
+
+  # ── Responses ────────────────────────────────────────────────────────────────
+  responses:
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Security ─────────────────────────────────────────────────────────────────
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Peer-API-Key
+      description: API key issued on peer registration
+
+security:
+  - ApiKeyAuth: []

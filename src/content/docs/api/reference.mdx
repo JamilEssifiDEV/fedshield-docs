@@ -1,0 +1,41 @@
+---
+title: API reference
+description: Interactive OpenAPI 3.1 reference for the FedShield Federation Core API. Try requests in your browser.
+template: splash
+---
+
+import { Code } from '@astrojs/starlight/components';
+
+The interactive API reference is rendered from the canonical OpenAPI 3.1 specification shipped in the [federation-core repository](https://github.com/JamilEssifiDEV/federation-core/blob/main/docs/openapi/openapi.yaml). Use the embedded Scalar viewer below, or grab the raw spec and run it through your own toolchain.
+
+<div id="scalar-api-reference"></div>
+
+<script
+  id="api-reference"
+  data-url="/openapi.yaml"
+  src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"
+></script>
+
+<noscript>
+  <p>
+    The interactive reference requires JavaScript. You can still grab the
+    raw OpenAPI 3.1 spec at <a href="/openapi.yaml"><code>/openapi.yaml</code></a>.
+  </p>
+</noscript>
+
+## Grab the spec
+
+The OpenAPI 3.1 document is hosted on this site so any OpenAPI-compatible tool can consume it:
+
+```sh
+curl https://fedshield-docs.pages.dev/openapi.yaml > fedshield.openapi.yaml
+```
+
+It mirrors the source of truth in the federation-core repo. Updates land in the repo first; this site rebuilds from it on every deploy.
+
+## Useful tooling
+
+- **[`openapi-generator`](https://openapi-generator.tech/)** — generate idiomatic clients for ~50 languages.
+- **[`oapi-codegen`](https://github.com/oapi-codegen/oapi-codegen)** — Go-native code generation.
+- **[Bruno](https://www.usebruno.com/)** or **[Insomnia](https://insomnia.rest/)** — open the spec, get a ready-made request collection.
+- **[Spectral](https://stoplight.io/open-source/spectral)** — lint the spec yourself. The repo's CI runs Spectral on every push, so you can run the same ruleset locally.
