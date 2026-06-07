@@ -11,7 +11,9 @@ services:
       - "4321:80"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/ > /dev/null 2>&1 || exit 1"]
+      # nginx:alpine has no wget/curl; use /dev/tcp via the shell to probe the
+      # listening socket. Works as long as the entrypoint is busybox sh.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/80 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
