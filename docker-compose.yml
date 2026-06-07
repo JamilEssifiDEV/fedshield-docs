@@ -1,0 +1,17 @@
+services:
+  docs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fedshield-docs:local
+    container_name: fedshield-docs
+    ports:
+      # Host port 4321 (matches Astro's dev-server convention) -> container 80.
+      # Federation-core uses 8080, so this stays out of its way.
+      - "4321:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

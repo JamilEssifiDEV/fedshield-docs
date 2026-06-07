@@ -1,0 +1,11 @@
+node_modules
+dist
+.astro
+.cache
+.git
+.github
+.vscode
+.DS_Store
+*.log
+README.md
+DEPLOY.md
